@@ -1,270 +1,312 @@
-<!--
-Web Camera Person Detector + Pose Skeleton
-Single-file demo using TensorFlow.js
-- Person detection: coco-ssd
-- Pose estimation: MoveNet (via @tensorflow-models/pose-detection)
-
-Instructions:
-1) Serve this file via a local server (live-server, python -m http.server, or upload to GitHub Pages).
-   Opening file:// may block camera permissions.
-2) Allow camera access. The app uses rear camera if available on mobile.
-3) For performance, use a modern device and allow WebGL.
-
-You can split CSS/JS into separate files if you prefer.
---><!doctype html>
-
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Detector de Personas + Pose</title>  <!-- Libraries (CDN) -->  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.8/dist/pose-detection.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.8/dist/movenet.min.js"></script>  <!-- Simple CSS (you can extract to a separate .css file) -->  <style>
-    :root{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;}
-    body{margin:0;background:#0b1020;color:#e6eef8;display:flex;flex-direction:column;height:100vh}
-    header{padding:10px 14px;background:#081025;display:flex;align-items:center;gap:12px}
-    h1{font-size:16px;margin:0}
-    #container{flex:1;position:relative;display:flex;align-items:center;justify-content:center}
-    video, canvas{max-width:100%;height:auto;border-radius:8px}
-    video{transform:scaleX(-1)} /* mirror for user-friendly view */
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Detector Personas + Pose 1080p60 — Optimizado</title>
 
-    #controls{position:absolute;left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap}
-    .btn{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:8px;color:#dfe9ff;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
+  <!-- TensorFlow.js + models -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.8/dist/pose-detection.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.8/dist/movenet.min.js"></script>
 
-    footer{padding:8px 12px;font-size:13px;background:#06101b;color:#9fb0d6}
-    .badge{background:#1c7a1c;padding:4px 8px;border-radius:6px;font-weight:600}
-
-    /* small screen tweaks */
-    @media (max-width:700px){header h1{font-size:14px}}
-  </style></head>
+  <style>
+    :root{--bg:#0b0f18;--panel:rgba(0,0,0,0.6);--accent:lime;}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Arial;color:#e6eef8}
+    #app{height:100vh;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+    video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)} /* espejo para verte */
+    canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    #ui{position:absolute;left:12px;top:12px;background:var(--panel);padding:8px;border-radius:8px;font-size:14px}
+    #status{position:absolute;right:12px;top:12px;background:var(--panel);padding:8px;border-radius:8px;font-size:13px}
+    button{margin-left:8px;padding:6px 10px;border-radius:6px;border:0;background:#1b2a3a;color:#eaf2ff;cursor:pointer}
+    small{display:block;color:#9fb0d6;margin-top:6px}
+    @media (max-width:700px){#ui{font-size:13px}}
+  </style>
+</head>
 <body>
-  <header>
-    <h1>Detector de Personas + Pose — abre la consola para logs</h1>
-    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-      <div class="badge">Modo demo</div>
+  <div id="app">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+
+    <div id="ui">
+      <strong>Detector Persona + Pose (1080p@60)</strong>
+      <div style="margin-top:6px">
+        <button id="startBtn">Iniciar</button>
+        <button id="stopBtn">Detener</button>
+        <button id="mirrorBtn">Espejo: ON</button>
+      </div>
+      <small id="tips">Tips: si va lento, baja resolución o FPS en el select.</small>
     </div>
-  </header>  <main id="container">
-    <!-- Video element (camera) -->
-    <video id="video" playsinline autoplay muted></video>
-    <!-- Canvas overlay where we draw boxes & skeleton -->
-    <canvas id="overlay"></canvas><div id="controls">
-  <button id="startBtn" class="btn">Iniciar</button>
-  <button id="stopBtn" class="btn">Detener</button>
-  <button id="toggleMirror" class="btn">Espejo: ON</button>
-  <label class="btn" style="display:flex;align-items:center;gap:6px"><input id="showBoxes" type="checkbox" checked> Boxes</label>
-  <label class="btn" style="display:flex;align-items:center;gap:6px"><input id="showPose" type="checkbox" checked> Pose</label>
-  <select id="quality" class="btn">
-    <option value="high">Alta</option>
-    <option value="medium" selected>Media</option>
-    <option value="low">Baja</option>
-  </select>
-</div>
 
-  </main>  <footer>
-    · Usa un servidor local (python -m http.server 8000 o live-server) · Recomendado: Chrome/Edge ·
-  </footer>  <!-- App logic (you can extract to main.js) -->  <script>
-    // Element refs
-    const video = document.getElementById('video');
-    const overlay = document.getElementById('overlay');
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const toggleMirrorBtn = document.getElementById('toggleMirror');
-    const showBoxesCheckbox = document.getElementById('showBoxes');
-    const showPoseCheckbox = document.getElementById('showPose');
-    const qualitySelect = document.getElementById('quality');
+    <div id="status">Estado: <span id="state">Esperando inicio</span></div>
+  </div>
 
-    let streaming = false;
-    let cocoModel = null;
-    let poseDetector = null;
-    let rafId = null;
-    let videoWidth = 640;
-    let videoHeight = 480;
-    let mirrored = true;
+  <script>
+  /* -------------------------
+     Config - ajustá parámetros
+     ------------------------- */
+  const VIDEO_WIDTH = 1920;   // ideal
+  const VIDEO_HEIGHT = 1080;  // ideal
+  const TARGET_FPS = 60;      // pedido (el video intentará 60)
+  // Frecuencia de ejecución de modelos (en ms)
+  const BOX_DETECT_INTERVAL = 120;  // ~8.3 FPS para boxes (reduce carga)
+  const POSE_DETECT_INTERVAL = 66;  // ~15 FPS para pose (más suave esqueleto)
+  const MIN_PERSON_SCORE = 0.45;
 
-    // Utility: resize canvas to match video
-    function resizeCanvasToVideo() {
-      overlay.width = video.videoWidth;
-      overlay.height = video.videoHeight;
-      overlay.style.width = video.offsetWidth + 'px';
-      overlay.style.height = video.offsetHeight + 'px';
+  /* -------------------------
+     Elementos & estado
+     ------------------------- */
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+  const stateSpan = document.getElementById('state');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const mirrorBtn = document.getElementById('mirrorBtn');
+
+  let cocoModel = null;
+  let poseDetector = null;
+  let stream = null;
+  let running = false;
+  let mirrored = true;
+
+  // últimos resultados para renderizar cada frame
+  let lastBoxes = [];
+  let lastPose = null;
+
+  // timers
+  let boxTimer = null;
+  let poseTimer = null;
+  let rafId = null;
+
+  /* -------------------------
+     Keypoint connections (MoveNet keypoint names)
+     ------------------------- */
+  const CONNECTIONS = [
+    ['nose','left_eye'], ['nose','right_eye'],
+    ['left_eye','left_ear'], ['right_eye','right_ear'],
+    ['left_shoulder','right_shoulder'],
+    ['left_shoulder','left_elbow'], ['left_elbow','left_wrist'],
+    ['right_shoulder','right_elbow'], ['right_elbow','right_wrist'],
+    ['left_shoulder','left_hip'], ['right_shoulder','right_hip'],
+    ['left_hip','right_hip'],
+    ['left_hip','left_knee'], ['left_knee','left_ankle'],
+    ['right_hip','right_knee'], ['right_knee','right_ankle']
+  ];
+
+  /* -------------------------
+     UI helpers
+     ------------------------- */
+  function setState(s){ stateSpan.textContent = s; }
+
+  /* -------------------------
+     Camera init
+     ------------------------- */
+  async function initCamera() {
+    setState('Solicitando cámara...');
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: 'environment',
+        width: { ideal: VIDEO_WIDTH },
+        height: { ideal: VIDEO_HEIGHT },
+        frameRate: { ideal: TARGET_FPS, max: TARGET_FPS }
+      }
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+
+    return new Promise(res=>{
+      video.onloadedmetadata = () => {
+        // adaptar canvas al tamaño real del video
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+        setState(`Cámara lista (${video.videoWidth}x${video.videoHeight})`);
+        res();
+      };
+    });
+  }
+
+  /* -------------------------
+     Load models
+     ------------------------- */
+  async function loadModels() {
+    setState('Cargando modelos (coco-ssd + MoveNet)...');
+    // coco-ssd
+    cocoModel = await cocoSsd.load();
+    // MoveNet (SINGLEPOSE_LIGHTNING es rápido)
+    poseDetector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+    );
+    setState('Modelos cargados');
+  }
+
+  /* -------------------------
+     Dibujo: cajas y esqueleto
+     ------------------------- */
+  function drawLoop() {
+    if (!running) return;
+    // limpiar canvas
+    ctx.clearRect(0,0,overlay.width,overlay.height);
+
+    // espejo: si usamos estilo CSS para mirror en video, debemos también voltear draw
+    ctx.save();
+    if (mirrored) {
+      ctx.translate(overlay.width,0);
+      ctx.scale(-1,1);
     }
 
-    async function initCamera() {
-      // choose resolution based on quality
-      const quality = qualitySelect.value;
-      let constraints = { audio:false, video:{ facingMode: 'user'} };
-      if (quality === 'high') constraints.video.width = { ideal:1280 }, constraints.video.height = { ideal:720 };
-      if (quality === 'medium') constraints.video.width = { ideal:640 }, constraints.video.height = { ideal:480 };
-      if (quality === 'low') constraints.video.width = { ideal:320 }, constraints.video.height = { ideal:240 };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-
-      return new Promise((res) => {
-        video.onloadedmetadata = () => {
-          video.play();
-          resizeCanvasToVideo();
-          res();
-        };
-      });
-    }
-
-    async function loadModels() {
-      console.log('Cargando coco-ssd...');
-      cocoModel = await cocoSsd.load();
-      console.log('coco-ssd cargado');
-
-      console.log('Cargando MoveNet...');
-      // create MoveNet detector
-      const detectorConfig = {modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING};
-      poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
-      console.log('MoveNet cargado');
-    }
-
-    function drawDetections(ctx, detections) {
-      ctx.lineWidth = Math.max(2, Math.round(overlay.height / 240));
-      ctx.strokeStyle = 'rgba(0,220,0,1)';
-      ctx.fillStyle = 'rgba(0,220,0,0.2)';
-      ctx.font = `${12}px Arial`;
-
-      detections.forEach(det => {
-        if (det.class === 'person' && det.score > 0.45) {
-          const [x,y,w,h] = det.bbox; // x,y,w,h
-          ctx.beginPath();
-          ctx.rect(x,y,w,h);
-          ctx.stroke();
-          ctx.fillRect(x,y,w,Math.min(18, overlay.height*0.04));
-          ctx.fillStyle = 'rgba(0,0,0,0.6)';
-          ctx.fillText(`${det.class} ${(det.score*100).toFixed(0)}%`, x+4, y+12);
-          ctx.fillStyle = 'rgba(0,220,0,0.2)';
-        }
-      });
-    }
-
-    function drawPose(ctx, pose) {
-      if (!pose || !pose.keypoints) return;
-      const keypoints = pose.keypoints;
-      // draw skeleton lines for common connections
-      const connections = [
-        ['left_shoulder','right_shoulder'],
-        ['left_shoulder','left_elbow'], ['left_elbow','left_wrist'],
-        ['right_shoulder','right_elbow'], ['right_elbow','right_wrist'],
-        ['left_shoulder','left_hip'], ['right_shoulder','right_hip'],
-        ['left_hip','right_hip'],
-        ['left_hip','left_knee'], ['left_knee','left_ankle'],
-        ['right_hip','right_knee'], ['right_knee','right_ankle']
-      ];
-
-      ctx.lineWidth = Math.max(2, Math.round(overlay.height / 250));
-      ctx.strokeStyle = 'rgba(0,255,0,0.95)';
-      ctx.fillStyle = 'rgba(0,255,0,0.9)';
-
-      // helper to get keypoint by name
-      const kpByName = {};
-      keypoints.forEach(kp=> kpByName[kp.name || kp.part] = kp);
-
-      // draw connections
-      connections.forEach(([a,b])=>{
-        const kpa = kpByName[a];
-        const kpb = kpByName[b];
-        if (!kpa || !kpb) return;
-        if (kpa.score < 0.3 || kpb.score < 0.3) return;
+    // Dibujar cajas (green)
+    ctx.lineWidth = Math.max(2, Math.round(overlay.height/300));
+    ctx.strokeStyle = 'rgba(0,220,0,0.95)';
+    ctx.fillStyle = 'rgba(0,220,0,0.15)';
+    lastBoxes.forEach(pred=>{
+      if (pred.class === 'person' && pred.score >= MIN_PERSON_SCORE) {
+        const [x,y,w,h] = pred.bbox;
         ctx.beginPath();
-        ctx.moveTo(kpa.x, kpa.y);
-        ctx.lineTo(kpb.x, kpb.y);
+        ctx.rect(x,y,w,h);
+        ctx.stroke();
+        ctx.fillRect(x,y,w,Math.min(20, overlay.height*0.04));
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = `${Math.max(12,overlay.width/80)}px Arial`;
+        ctx.fillText(`${pred.class} ${(pred.score*100).toFixed(0)}%`, x+6, y+Math.min(16,overlay.height*0.04));
+        ctx.fillStyle = 'rgba(0,220,0,0.15)';
+      }
+    });
+
+    // Dibujar esqueleto (pose)
+    if (lastPose && lastPose.keypoints) {
+      const kps = {};
+      lastPose.keypoints.forEach(k => { kps[k.name||k.part] = k; });
+
+      // conexiones
+      ctx.lineWidth = Math.max(2, Math.round(overlay.height/280));
+      ctx.strokeStyle = 'rgba(255,165,0,0.95)'; // naranja
+      CONNECTIONS.forEach(([a,b])=>{
+        const A = kps[a], B = kps[b];
+        if (!A || !B) return;
+        if (A.score < 0.25 || B.score < 0.25) return;
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
         ctx.stroke();
       });
 
-      // draw keypoints
-      keypoints.forEach(kp=>{
-        if (kp.score < 0.25) return;
+      // nodos
+      ctx.fillStyle = 'rgba(255,69,0,0.95)'; // naranja fuerte
+      lastPose.keypoints.forEach(p=>{
+        if (p.score < 0.25) return;
         ctx.beginPath();
-        ctx.arc(kp.x, kp.y, Math.max(3, overlay.width/200), 0, Math.PI*2);
+        ctx.arc(p.x, p.y, Math.max(3, overlay.width/220), 0, Math.PI*2);
         ctx.fill();
       });
     }
 
-    async function renderLoop() {
-      if (!streaming) return;
+    ctx.restore();
+    // pedir siguiente frame para render
+    rafId = requestAnimationFrame(drawLoop);
+  }
 
-      resizeCanvasToVideo();
-      const ctx = overlay.getContext('2d');
-      // clear
-      ctx.clearRect(0,0,overlay.width,overlay.height);
-
-      // flip canvas if mirrored
-      ctx.save();
-      if (mirrored) {
-        ctx.scale(-1,1);
-        ctx.translate(-overlay.width,0);
-      }
-
-      try {
-        // run object detection (coco-ssd)
-        if (cocoModel && showBoxesCheckbox.checked) {
-          // input can be video element
-          const predictions = await cocoModel.detect(video, 5);
-          drawDetections(ctx, predictions);
-        }
-
-        // run pose detection
-        if (poseDetector && showPoseCheckbox.checked) {
-          const poses = await poseDetector.estimatePoses(video, {flipHorizontal: mirrored});
-          // poses is an array; draw top one
-          if (poses && poses.length>0) drawPose(ctx, poses[0]);
-        }
-      } catch (err) {
-        console.error('Error en detección:', err);
-      }
-
-      ctx.restore();
-
-      // schedule next frame
-      rafId = requestAnimationFrame(renderLoop);
+  /* -------------------------
+     Periodic detection tasks (no bloquear render)
+     ------------------------- */
+  async function runBoxDetection() {
+    try {
+      if (!cocoModel) return;
+      const preds = await cocoModel.detect(video, 5);
+      lastBoxes = preds;
+    } catch (e) {
+      console.warn('Error detección boxes', e);
     }
+  }
 
-    async function startApp() {
-      if (streaming) return;
+  async function runPoseDetection() {
+    try {
+      if (!poseDetector) return;
+      const poses = await poseDetector.estimatePoses(video, {flipHorizontal: mirrored});
+      if (poses && poses.length > 0) lastPose = poses[0];
+    } catch (e) {
+      console.warn('Error pose', e);
+    }
+  }
+
+  /* -------------------------
+     Start / Stop orchestration
+     ------------------------- */
+  async function startAll() {
+    if (running) return;
+    running = true;
+    setState('Iniciando cámara y modelos...');
+    try {
       await initCamera();
+    } catch (e) {
+      setState('Error cámara: ' + (e.message || e));
+      running = false;
+      return;
+    }
+
+    try {
       await loadModels();
-      streaming = true;
-      renderLoop();
+    } catch (e) {
+      setState('Error cargando modelos: ' + (e.message || e));
+      running = false;
+      return;
     }
 
-    function stopApp() {
-      streaming = false;
-      if (rafId) cancelAnimationFrame(rafId);
-      // stop camera tracks
-      const stream = video.srcObject;
-      if (stream) {
-        stream.getTracks().forEach(t=>t.stop());
-        video.srcObject = null;
-      }
-      const ctx = overlay.getContext('2d');
-      ctx.clearRect(0,0,overlay.width,overlay.height);
+    // iniciar loops periódicos
+    // Ejecutar inmediatamente al arrancar para tener resultados pronto
+    await runBoxDetection();
+    await runPoseDetection();
+
+    boxTimer = setInterval(runBoxDetection, BOX_DETECT_INTERVAL);
+    poseTimer = setInterval(runPoseDetection, POSE_DETECT_INTERVAL);
+
+    // empezar render loop (aquí se renderiza a ~60fps, mostrando los últimos resultados)
+    drawLoop();
+    setState('Detectando (render a 60fps, modelos a tasas reducidas)');
+  }
+
+  function stopAll() {
+    if (!running) return;
+    running = false;
+    setState('Detenido');
+    // parar timers y anim frame
+    if (boxTimer) { clearInterval(boxTimer); boxTimer = null; }
+    if (poseTimer) { clearInterval(poseTimer); poseTimer = null; }
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    // detener cámara
+    if (video && video.srcObject) {
+      const tracks = video.srcObject.getTracks();
+      tracks.forEach(t=>t.stop());
+      video.srcObject = null;
     }
+    // limpiar canvas
+    ctx.clearRect(0,0,overlay.width,overlay.height);
+    lastBoxes = []; lastPose = null;
+  }
 
-    // Event listeners
-    startBtn.addEventListener('click', ()=> startApp());
-    stopBtn.addEventListener('click', ()=> stopApp());
-    toggleMirrorBtn.addEventListener('click', ()=>{
-      mirrored = !mirrored;
-      video.style.transform = mirrored ? 'scaleX(-1)' : 'scaleX(1)';
-      toggleMirrorBtn.textContent = `Espejo: ${mirrored? 'ON':'OFF'}`;
-    });
+  /* -------------------------
+     Botones & toggles
+     ------------------------- */
+  startBtn.addEventListener('click', ()=> startAll());
+  stopBtn.addEventListener('click', ()=> stopAll());
+  mirrorBtn.addEventListener('click', ()=>{
+    mirrored = !mirrored;
+    video.style.transform = mirrored ? 'scaleX(-1)' : 'scaleX(1)';
+    mirrorBtn.textContent = `Espejo: ${mirrored ? 'ON' : 'OFF'}`;
+  });
 
-    // auto-start on page load
-    (async ()=>{
-      // optional: try to load camera eagerly but wait user to press start for models
-      try {
-        await initCamera();
-        // pause video until user starts models to save cpu
-        video.pause();
-      } catch (e) {
-        console.warn('No se pudo iniciar cámara automáticamente, presiona Iniciar:', e);
-      }
-    })();
+  /* -------------------------
+     Auto-start (intento) - si querés evitar pedir click, descomenta startAll()
+     ------------------------- */
+  // startAll(); // <-- si querés que arranque sin tocar botón, descomentá
 
-    // clean up on unload
-    window.addEventListener('beforeunload', stopApp);
-  </script></body>
+  /* -------------------------
+     Seguridad: limpiar si se cierra pestaña
+     ------------------------- */
+  window.addEventListener('beforeunload', stopAll);
+  </script>
+</body>
 </html>
