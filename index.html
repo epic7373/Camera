@@ -2,721 +2,329 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>REMASTER — AI Photo Enhancement</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nano Banana Enhancer</title>
+
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body{
+background:#0f172a;
+color:white;
+font-family:Arial,sans-serif;
+padding:20px;
+max-width:900px;
+margin:auto;
+}
 
-  :root {
-    --bg:       #07070D;
-    --surface:  #0F0F1A;
-    --card:     #13131F;
-    --border:   rgba(255,255,255,0.07);
-    --accent1:  #9B6DFF;
-    --accent2:  #4FC3F7;
-    --glow:     rgba(155,109,255,0.35);
-    --text:     #E8E8F0;
-    --muted:    #6B6B85;
-    --danger:   #FF5C7A;
-    --success:  #3DFFA0;
-    --font-display: 'Space Grotesk', sans-serif;
-    --font-mono:    'Space Mono', monospace;
-  }
+.card{
+background:#1e293b;
+padding:20px;
+border-radius:20px;
+margin-bottom:20px;
+}
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-display);
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
-  }
+input,button{
+width:100%;
+padding:12px;
+border:none;
+border-radius:10px;
+margin-top:10px;
+}
 
-  /* ── NOISE OVERLAY ── */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.4;
-  }
+button{
+background:#3b82f6;
+color:white;
+font-weight:bold;
+cursor:pointer;
+}
 
-  /* ── AMBIENT GLOW ── */
-  .ambient {
-    position: fixed;
-    border-radius: 50%;
-    filter: blur(100px);
-    pointer-events: none;
-    z-index: 0;
-  }
-  .ambient-1 {
-    width: 400px; height: 400px;
-    background: radial-gradient(circle, rgba(155,109,255,0.12) 0%, transparent 70%);
-    top: -100px; left: -100px;
-    animation: drift1 12s ease-in-out infinite;
-  }
-  .ambient-2 {
-    width: 300px; height: 300px;
-    background: radial-gradient(circle, rgba(79,195,247,0.1) 0%, transparent 70%);
-    bottom: 100px; right: -80px;
-    animation: drift2 15s ease-in-out infinite;
-  }
-  @keyframes drift1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,30px)} }
-  @keyframes drift2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-30px,-20px)} }
+img{
+width:100%;
+margin-top:15px;
+border-radius:15px;
+}
 
-  /* ── LAYOUT ── */
-  .app {
-    position: relative;
-    z-index: 1;
-    min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 0 20px 40px;
-  }
-
-  /* ── HEADER ── */
-  header {
-    padding: 36px 0 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .logo-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .logo-icon {
-    width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--accent1), var(--accent2));
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
-  }
-  .logo-text {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    background: linear-gradient(90deg, var(--accent1), var(--accent2));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .tagline {
-    font-size: 12px;
-    color: var(--muted);
-    letter-spacing: 0.06em;
-    font-family: var(--font-mono);
-    padding-left: 48px;
-  }
-
-  /* ── API KEY PANEL ── */
-  .api-panel {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px;
-    margin-bottom: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .api-label {
-    font-size: 11px;
-    font-family: var(--font-mono);
-    color: var(--muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  .api-input-row {
-    display: flex;
-    gap: 8px;
-  }
-  .api-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 14px;
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  .api-input:focus { border-color: var(--accent1); }
-  .api-input::placeholder { color: var(--muted); }
-  .api-save-btn {
-    background: linear-gradient(135deg, var(--accent1), var(--accent2));
-    border: none;
-    border-radius: 10px;
-    padding: 10px 16px;
-    color: #fff;
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.15s;
-    white-space: nowrap;
-  }
-  .api-save-btn:active { transform: scale(0.96); }
-  .api-status {
-    font-size: 11px;
-    font-family: var(--font-mono);
-    height: 14px;
-    transition: color 0.3s;
-  }
-  .api-status.ok  { color: var(--success); }
-  .api-status.err { color: var(--danger); }
-
-  /* ── UPLOAD ZONE ── */
-  .upload-zone {
-    background: var(--card);
-    border: 1.5px dashed rgba(155,109,255,0.35);
-    border-radius: 20px;
-    padding: 36px 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    cursor: pointer;
-    transition: border-color 0.25s, background 0.25s;
-    position: relative;
-    overflow: hidden;
-    margin-bottom: 20px;
-  }
-  .upload-zone:hover, .upload-zone.drag-over {
-    border-color: var(--accent1);
-    background: rgba(155,109,255,0.06);
-  }
-  .upload-zone input[type="file"] {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
-  }
-  .upload-icon {
-    width: 64px; height: 64px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(155,109,255,0.2), rgba(79,195,247,0.15));
-    border: 1px solid rgba(155,109,255,0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-  }
-  .upload-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-    text-align: center;
-  }
-  .upload-sub {
-    font-size: 12px;
-    color: var(--muted);
-    text-align: center;
-    line-height: 1.6;
-    font-family: var(--font-mono);
-  }
-  .upload-btns {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: center;
-    pointer-events: none;
-  }
-  .chip {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  /* ── IMAGE PREVIEW + SLIDER ── */
-  .result-section {
-    display: none;
-    flex-direction: column;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
-  .result-section.visible { display: flex; }
-
-  .comparison-wrap {
-    position: relative;
-    border-radius: 18px;
-    overflow: hidden;
-    aspect-ratio: auto;
-    background: #000;
-    user-select: none;
-    touch-action: none;
-  }
-  .comparison-wrap img {
-    display: block;
-    width: 100%;
-    height: auto;
-    object-fit: cover;
-  }
-  .img-after {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    width: 50%;
-  }
-  .img-after img {
-    position: absolute;
-    top: 0; left: 0;
-    width: 200%; /* double because container is 50% */
-    height: 100%;
-    object-fit: cover;
-    object-position: left;
-    max-width: none;
-  }
-  .slider-line {
-    position: absolute;
-    top: 0; bottom: 0;
-    left: 50%;
-    width: 2px;
-    background: #fff;
-    transform: translateX(-50%);
-    cursor: ew-resize;
-    z-index: 10;
-  }
-  .slider-handle {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    background: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    cursor: ew-resize;
-  }
-  .label-badge {
-    position: absolute;
-    bottom: 12px;
-    padding: 4px 10px;
-    background: rgba(0,0,0,0.7);
-    border-radius: 999px;
-    font-size: 10px;
-    font-family: var(--font-mono);
-    letter-spacing: 0.1em;
-    backdrop-filter: blur(8px);
-  }
-  .label-before { left: 12px; color: var(--muted); }
-  .label-after  { right: 12px; color: var(--success); }
-
-  /* ── PROCESSING OVERLAY ── */
-  .processing-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(7,7,13,0.85);
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    backdrop-filter: blur(4px);
-    border-radius: 18px;
-    z-index: 20;
-  }
-  .processing-overlay.active { display: flex; }
-  .spinner {
-    width: 48px; height: 48px;
-    border-radius: 50%;
-    border: 3px solid rgba(155,109,255,0.2);
-    border-top-color: var(--accent1);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .processing-text {
-    font-size: 13px;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    letter-spacing: 0.08em;
-    text-align: center;
-  }
-  .processing-step {
-    font-size: 11px;
-    color: var(--accent1);
-    font-family: var(--font-mono);
-    animation: blink 1.2s ease-in-out infinite;
-  }
-  @keyframes blink { 0%,100%{opacity:0.4} 50%{opacity:1} }
-
-  /* ── ACTION BUTTONS ── */
-  .action-row {
-    display: flex;
-    gap: 10px;
-  }
-  .btn-primary {
-    flex: 1;
-    background: linear-gradient(135deg, var(--accent1), #7B4FE0);
-    border: none;
-    border-radius: 14px;
-    padding: 16px;
-    color: #fff;
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
-    box-shadow: 0 4px 24px rgba(155,109,255,0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .btn-primary:active { transform: scale(0.97); }
-  .btn-primary:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    box-shadow: none;
-  }
-  .btn-secondary {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 16px;
-    color: var(--muted);
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: transform 0.15s, border-color 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .btn-secondary:active { transform: scale(0.97); }
-
-  /* ── INTENSITY SLIDER ── */
-  .intensity-section {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .intensity-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .intensity-label {
-    font-size: 12px;
-    font-family: var(--font-mono);
-    color: var(--muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .intensity-value {
-    font-size: 14px;
-    font-weight: 700;
-    font-family: var(--font-mono);
-    color: var(--accent1);
-  }
-  input[type="range"] {
-    -webkit-appearance: none;
-    width: 100%;
-    height: 4px;
-    border-radius: 2px;
-    background: linear-gradient(to right, var(--accent1) 0%, var(--accent1) 75%, rgba(255,255,255,0.1) 75%);
-    outline: none;
-    cursor: pointer;
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 20px; height: 20px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent1), var(--accent2));
-    box-shadow: 0 2px 12px var(--glow);
-    cursor: pointer;
-    transition: transform 0.15s;
-  }
-  input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.2); }
-
-  .modes-row {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .mode-chip {
-    padding: 6px 12px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    transition: all 0.2s;
-    font-family: var(--font-display);
-  }
-  .mode-chip.active {
-    background: rgba(155,109,255,0.15);
-    border-color: var(--accent1);
-    color: var(--accent1);
-  }
-
-  /* ── DOWNLOAD ── */
-  .download-btn {
-    background: var(--card);
-    border: 1px solid var(--success);
-    border-radius: 14px;
-    padding: 14px;
-    color: var(--success);
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    width: 100%;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: background 0.2s;
-    text-decoration: none;
-  }
-  .download-btn.visible { display: flex; }
-  .download-btn:hover { background: rgba(61,255,160,0.08); }
-
-  /* ── ERROR TOAST ── */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(80px);
-    background: #1A0F14;
-    border: 1px solid rgba(255,92,122,0.4);
-    border-radius: 12px;
-    padding: 12px 20px;
-    font-size: 13px;
-    color: var(--danger);
-    font-family: var(--font-mono);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    z-index: 10000;
-    max-width: 340px;
-    text-align: center;
-  }
-  .toast.show { transform: translateX(-50%) translateY(0); }
+#loading{
+display:none;
+margin-top:15px;
+}
 </style>
 </head>
 <body>
 
-<div class="ambient ambient-1"></div>
-<div class="ambient ambient-2"></div>
+<div class="card">
+<h2>🔑 API Key</h2>
 
-<div class="app">
+<input
+type="password"
+id="apiKey"
+placeholder="Pega tu API Key">
 
-  <!-- HEADER -->
-  <header>
-    <div class="logo-row">
-      <div class="logo-icon">✦</div>
-      <span class="logo-text">REMASTER</span>
-    </div>
-    <div class="tagline">AI photo reconstruction · powered by Gemini</div>
-  </header>
+<button onclick="saveKey()">
+Guardar API
+</button>
+</div>
 
-  <!-- API KEY -->
-  <div class="api-panel">
-    <div class="api-label">🔑 Google AI Studio API Key</div>
-    <div class="api-input-row">
-      <input class="api-input" type="password" id="apiKeyInput" placeholder="AIzaSy..." autocomplete="off" spellcheck="false">
-      <button class="api-save-btn" onclick="saveKey()">Guardar</button>
-    </div>
-    <div class="api-status" id="apiStatus"></div>
-  </div>
+<div class="card">
 
-  <!-- UPLOAD ZONE -->
-  <div class="upload-zone" id="uploadZone" onclick="triggerUpload()">
-    <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFile(event)">
-    <div class="upload-icon">📸</div>
-    <div class="upload-title">Sube o toma tu foto borrosa</div>
-    <div class="upload-sub">JPG, PNG, HEIC · Máx 10MB<br>Toca para abrir cámara o galería</div>
-    <div class="upload-btns">
-      <span class="chip">📷 Cámara</span>
-      <span class="chip">🖼 Galería</span>
-    </div>
-  </div>
+<h2>📸 Imagen</h2>
 
-  <!-- INTENSITY CONTROLS -->
-  <div class="intensity-section" style="margin-bottom:20px">
-    <div class="intensity-header">
-      <span class="intensity-label">Intensidad de remasterización</span>
-      <span class="intensity-value" id="intensityVal">75%</span>
-    </div>
-    <input type="range" id="intensitySlider" min="1" max="100" value="75" oninput="updateIntensity(this.value)">
-    <div class="modes-row">
-      <button class="mode-chip active" onclick="setMode(this,'Estándar')">Estándar</button>
-      <button class="mode-chip" onclick="setMode(this,'Ultra Sharp')">Ultra Sharp</button>
-      <button class="mode-chip" onclick="setMode(this,'Nocturna')">Nocturna</button>
-      <button class="mode-chip" onclick="setMode(this,'Retrato')">Retrato</button>
-    </div>
-  </div>
+<input
+type="file"
+id="fileInput"
+accept="image/*">
 
-  <!-- MAIN ACTION -->
-  <div class="action-row" style="margin-bottom:20px">
-    <button class="btn-primary" id="remasterBtn" onclick="remasterImage()" disabled>
-      <span>✦</span> Remasterizar
-    </button>
-    <button class="btn-secondary" onclick="resetAll()">↺ Limpiar</button>
-  </div>
+<img id="preview">
 
-  <!-- RESULT SECTION -->
-  <div class="result-section" id="resultSection">
-    <div class="comparison-wrap" id="comparisonWrap">
-      <img id="imgBefore" src="" alt="Original">
-      <div class="img-after" id="imgAfterWrap">
-        <img id="imgAfter" src="" alt="Remasterizada">
-      </div>
-      <div class="slider-line" id="sliderLine">
-        <div class="slider-handle">⇄</div>
-      </div>
-      <span class="label-badge label-before">ORIGINAL</span>
-      <span class="label-badge label-after">REMASTER ✦</span>
-      <div class="processing-overlay" id="processingOverlay">
-        <div class="spinner"></div>
-        <div class="processing-text">Reconstruyendo imagen...</div>
-        <div class="processing-step" id="processingStep">Analizando detalles perdidos</div>
-      </div>
-    </div>
+<button onclick="enhanceImage()">
+✨ Mejorar Imagen
+</button>
 
-    <a class="download-btn" id="downloadBtn" download="remaster.png">
-      ⬇ Descargar imagen remasterizada
-    </a>
-  </div>
+<div id="loading">
+Procesando...
+</div>
 
 </div>
 
-<!-- TOAST -->
-<div class="toast" id="toast"></div>
+<div class="card">
+
+<h2>🖼 Resultado</h2>
+
+<img id="result">
+
+</div>
 
 <script>
-/* ── STATE ── */
-let apiKey = localStorage.getItem('gemini_key') || '';
-let currentFile = null;
-let remasteredUrl = null;
-let activeMode = 'Estándar';
-let sliderDragging = false;
 
-/* ── INIT ── */
-if (apiKey) {
-  document.getElementById('apiKeyInput').value = apiKey;
-  showStatus('✓ API key cargada', 'ok');
+function saveKey(){
+
+localStorage.setItem(
+"gemini_api_key",
+document.getElementById("apiKey").value
+);
+
+alert("API guardada");
+
 }
 
-function saveKey() {
-  const val = document.getElementById('apiKeyInput').value.trim();
-  if (!val.startsWith('AIza')) {
-    showStatus('✗ Key inválida (debe empezar con AIza...)', 'err');
-    return;
-  }
-  apiKey = val;
-  localStorage.setItem('gemini_key', val);
-  showStatus('✓ Guardada correctamente', 'ok');
+window.onload=()=>{
+
+const key=
+localStorage.getItem(
+"gemini_api_key"
+);
+
+if(key){
+
+document.getElementById(
+"apiKey"
+).value=key;
+
 }
 
-function showStatus(msg, type) {
-  const el = document.getElementById('apiStatus');
-  el.textContent = msg;
-  el.className = 'api-status ' + type;
+};
+
+const fileInput=
+document.getElementById(
+"fileInput"
+);
+
+fileInput.addEventListener(
+"change",
+e=>{
+
+const file=e.target.files[0];
+
+const reader=
+new FileReader();
+
+reader.onload=(event)=>{
+
+document.getElementById(
+"preview"
+).src=
+event.target.result;
+
+};
+
+reader.readAsDataURL(file);
+
+}
+);
+
+async function enhanceImage(){
+
+const API_KEY=
+localStorage.getItem(
+"gemini_api_key"
+);
+
+if(!API_KEY){
+
+alert(
+"Configura tu API Key"
+);
+
+return;
 }
 
-/* ── FILE HANDLING ── */
-function triggerUpload() {
-  // No-op, input handles it
+const file=
+fileInput.files[0];
+
+if(!file){
+
+alert(
+"Selecciona una imagen"
+);
+
+return;
 }
 
-function handleFile(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (file.size > 10 * 1024 * 1024) { showToast('Imagen demasiado grande (máx 10MB)'); return; }
+document.getElementById(
+"loading"
+).style.display=
+"block";
 
-  currentFile = file;
-  remasteredUrl = null;
+const base64=
+await fileToBase64(file);
 
-  const url = URL.createObjectURL(file);
-  const beforeImg = document.getElementById('imgBefore');
-  const afterImg  = document.getElementById('imgAfter');
+const pureBase64=
+base64.split(",")[1];
 
-  beforeImg.onload = () => {
-    document.getElementById('resultSection').classList.add('visible');
-    document.getElementById('downloadBtn').classList.remove('visible');
-    afterImg.src = url; // same as before until remastered
-    resetSlider();
-  };
-  beforeImg.src = url;
+const response=
+await fetch(
+`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${API_KEY}`,
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
 
-  document.getElementById('remasterBtn').disabled = false;
+contents:[{
 
-  // Drag-over upload zone
-  const zone = document.getElementById('uploadZone');
-  zone.style.borderColor = 'var(--accent1)';
-  setTimeout(() => zone.style.borderColor = '', 600);
+parts:[
+
+{
+text:`
+Improve image quality.
+Reduce blur.
+Reduce compression artifacts.
+Improve clarity.
+Restore details where possible.
+Preserve composition.
+Do not modify objects.
+Keep original colors.
+`
+},
+
+{
+inline_data:{
+mime_type:file.type,
+data:pureBase64
+}
 }
 
-/* ── DRAG & DROP ── */
-const zone = document.getElementById('uploadZone');
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-zone.addEventListener('drop', e => {
-  e.preventDefault();
-  zone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) {
-    currentFile = file;
-    handleFile({ target: { files: [file] } });
-  }
-});
+]
 
-/* ── CONTROLS ── */
-function updateIntensity(val) {
-  document.getElementById('intensityVal').textContent = val + '%';
-  const slider = document.getElementById('intensitySlider');
-  slider.style.background = `linear-gradient(to right, var(--accent1) 0%, var(--accent1) ${val}%, rgba(255,255,255,0.1) ${val}%)`;
+}]
+
+})
+
+}
+);
+
+const data=
+await response.json();
+
+console.log(data);
+
+document.getElementById(
+"loading"
+).style.display=
+"none";
+
+try{
+
+const parts=
+data.candidates[0]
+.content.parts;
+
+for(const part of parts){
+
+if(part.inlineData){
+
+document.getElementById(
+"result"
+).src=
+
+`data:image/png;base64,${
+part.inlineData.data
+}`;
+
+return;
+
 }
 
-function setMode(el, mode) {
-  document.querySelectorAll('.mode-chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  activeMode = mode;
+if(part.inline_data){
+
+document.getElementById(
+"result"
+).src=
+
+`data:image/png;base64,${
+part.inline_data.data
+}`;
+
+return;
+
 }
 
-/* ── REMASTER ── */
-async function remasterImage() {
-  if (!currentFile) { showToast('Primero sube una imagen 📸'); return; }
-  if (!apiKey) { showToast('Ingresa tu API key de Google AI Studio 🔑'); return; }
+}
 
-  const intensity = document.getElementById('intensitySlider').value;
-  const btn = document.getElementById('remasterBtn');
-  btn.disabled = true;
+alert(
+"No se encontró imagen en la respuesta."
+);
 
-  document.getElementById('processingOverlay').classList.add('active');
-  animateSteps();
+}catch(err){
 
-  try {
-    const base64 = await fileToBase64(currentFile);
-    const mimeType = currentFile.type ||
+console.error(err);
+
+alert(
+"Error procesando respuesta."
+);
+
+}
+
+}
+
+function fileToBase64(file){
+
+return new Promise(
+(resolve,reject)=>{
+
+const reader=
+new FileReader();
+
+reader.onload=
+()=>resolve(
+reader.result
+);
+
+reader.onerror=
+error=>reject(
+error
+);
+
+reader.readAsDataURL(
+file
+);
+
+}
+);
+
+}
+
+</script>
+
+</body>
+</html>
