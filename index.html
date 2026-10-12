@@ -1,330 +1,301 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nano Banana Enhancer</title>
+<title>VYSVEX // CCTV</title>
 
 <style>
+*{box-sizing:border-box}
 body{
-background:#0f172a;
-color:white;
-font-family:Arial,sans-serif;
-padding:20px;
-max-width:900px;
-margin:auto;
+  margin:0;background:#050908;color:#00ff9d;
+  font-family:monospace;overflow:hidden
 }
-
-.card{
-background:#1e293b;
-padding:20px;
-border-radius:20px;
-margin-bottom:20px;
+header{
+  padding:15px;border-bottom:1px solid #164d38;
+  display:flex;justify-content:space-between;align-items:center;
+  background:#08130f
 }
-
-input,button{
-width:100%;
-padding:12px;
-border:none;
-border-radius:10px;
-margin-top:10px;
+h1{font-size:17px;margin:0;letter-spacing:2px}
+.rec{color:#ff3434;font-weight:bold}
+main{padding:12px;max-width:900px;margin:auto}
+.screen{
+  position:relative;width:100%;aspect-ratio:3/4;
+  max-height:72vh;background:#000;overflow:hidden;
+  border:1px solid #00ff9d
 }
-
+video,canvas{
+  position:absolute;width:100%;height:100%;
+  inset:0;object-fit:cover
+}
+video{transform:scaleX(-1)}
+canvas{pointer-events:none}
+.overlay{
+  position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(
+    transparent 0px,transparent 3px,
+    #00ff9d08 4px,#00ff9d08 5px
+  )
+}
+.corner{position:absolute;width:25px;height:25px;
+  border-color:#00ff9d;border-style:solid}
+.tl{top:8px;left:8px;border-width:2px 0 0 2px}
+.tr{top:8px;right:8px;border-width:2px 2px 0 0}
+.bl{bottom:8px;left:8px;border-width:0 0 2px 2px}
+.br{bottom:8px;right:8px;border-width:0 2px 2px 0}
+.info{
+  display:flex;justify-content:space-between;gap:8px;
+  flex-wrap:wrap;padding:12px 0;font-size:12px
+}
 button{
-background:#3b82f6;
-color:white;
-font-weight:bold;
-cursor:pointer;
+  background:#00ff9d;color:#00140b;border:0;
+  padding:14px;font-weight:bold;font-family:monospace;
+  width:100%;margin-top:8px;font-size:14px
 }
-
-img{
-width:100%;
-margin-top:15px;
-border-radius:15px;
-}
-
-#loading{
-display:none;
-margin-top:15px;
-}
+button:disabled{opacity:.5}
+#status{font-size:12px;color:#9bffcf;margin:12px 0}
+.small{color:#487d65;font-size:11px}
 </style>
 </head>
+
 <body>
+<header>
+  <h1>VYSVEX // CCTV-01</h1>
+  <span class="rec">● REC</span>
+</header>
 
-<div class="card">
-<h2>🔑 API Key</h2>
+<main>
+  <div class="screen">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="overlay"></div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </div>
 
-<input
-type="password"
-id="apiKey"
-placeholder="Pega tu API Key">
+  <div class="info">
+    <span>CAM: <b>LIVE</b></span>
+    <span>PERSONAS: <b id="people">0</b></span>
+    <span>FPS: <b id="fps">0</b></span>
+  </div>
 
-<button onclick="saveKey()">
-Guardar API
-</button>
-</div>
+  <div id="status">SISTEMA EN ESPERA</div>
+  <button id="start">▶ ACTIVAR CÁMARA Y ESQUELETO</button>
+  <button id="stop" style="background:#14271f;color:#00ff9d" disabled>
+    ■ DETENER SISTEMA
+  </button>
+  <p class="small">MOTION TRACKING // PROCESAMIENTO LOCAL DEL VIDEO</p>
+</main>
 
-<div class="card">
-
-<h2>📸 Imagen</h2>
-
-<input
-type="file"
-id="fileInput"
-accept="image/*">
-
-<img id="preview">
-
-<button onclick="enhanceImage()">
-✨ Mejorar Imagen
-</button>
-
-<div id="loading">
-Procesando...
-</div>
-
-</div>
-
-<div class="card">
-
-<h2>🖼 Resultado</h2>
-
-<img id="result">
-
-</div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.22.0/dist/tf-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.22.0/dist/tf-converter.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.22.0/dist/tf-backend-webgl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 
 <script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const status = document.getElementById('status');
+const people = document.getElementById('people');
+const fpsDisplay = document.getElementById('fps');
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
 
-function saveKey(){
+let stream = null;
+let detector = null;
+let running = false;
+let animation = null;
+let lastFrame = 0;
+let frames = 0;
+let lastFps = performance.now();
 
-localStorage.setItem(
-"gemini_api_key",
-document.getElementById("apiKey").value
-);
+const connections = [
+ ['nose','left_eye'],['nose','right_eye'],
+ ['left_eye','left_ear'],['right_eye','right_ear'],
+ ['left_shoulder','right_shoulder'],
+ ['left_shoulder','left_elbow'],
+ ['left_elbow','left_wrist'],
+ ['right_shoulder','right_elbow'],
+ ['right_elbow','right_wrist'],
+ ['left_shoulder','left_hip'],
+ ['right_shoulder','right_hip'],
+ ['left_hip','right_hip'],
+ ['left_hip','left_knee'],
+ ['left_knee','left_ankle'],
+ ['right_hip','right_knee'],
+ ['right_knee','right_ankle']
+];
 
-alert("API guardada");
-
+function resizeCanvas(){
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if(!w || !h) return;
+  if(canvas.width !== w || canvas.height !== h){
+    canvas.width = w;
+    canvas.height = h;
+  }
 }
 
-window.onload=()=>{
+function drawSkeleton(poses){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-const key=
-localStorage.getItem(
-"gemini_api_key"
-);
+  // La imagen está espejada, así que espejamos también el esqueleto.
+  ctx.save();
+  ctx.translate(canvas.width,0);
+  ctx.scale(-1,1);
 
-if(key){
+  let visiblePeople = 0;
 
-document.getElementById(
-"apiKey"
-).value=key;
+  for(const pose of poses){
+    const points = {};
+    for(const p of pose.keypoints){
+      if(p.score > 0.25) points[p.name] = p;
+    }
 
+    const visible = Object.keys(points).length;
+    if(visible < 4) continue;
+    visiblePeople++;
+
+    // Huesos
+    ctx.lineWidth = Math.max(2,canvas.width/240);
+    ctx.strokeStyle = '#00ff9d';
+    ctx.shadowColor = '#00ff9d';
+    ctx.shadowBlur = 9;
+
+    for(const [a,b] of connections){
+      const p1=points[a], p2=points[b];
+      if(!p1 || !p2) continue;
+
+      ctx.beginPath();
+      ctx.moveTo(p1.x,p1.y);
+      ctx.lineTo(p2.x,p2.y);
+      ctx.stroke();
+    }
+
+    // Articulaciones
+    ctx.shadowBlur=12;
+    for(const p of Object.values(points)){
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,Math.max(3,canvas.width/150),0,Math.PI*2);
+      ctx.fillStyle='#d4fff0';
+      ctx.fill();
+      ctx.strokeStyle='#00ff9d';
+      ctx.lineWidth=2;
+      ctx.stroke();
+    }
+
+    // Etiqueta sobre la cabeza
+    const head = points.nose || points.left_shoulder;
+    if(head){
+      ctx.shadowBlur=0;
+      ctx.fillStyle='#00ff9d';
+      ctx.font=`bold ${Math.max(11,canvas.width/38)}px monospace`;
+      ctx.fillText('TARGET // TRACKING',head.x,Math.max(15,head.y-22));
+    }
+  }
+
+  ctx.restore();
+  people.textContent=visiblePeople;
 }
 
+async function loop(){
+  if(!running) return;
+
+  if(video.readyState >= 2){
+    try{
+      resizeCanvas();
+      const poses=await detector.estimatePoses(video);
+      if(!running) return;
+      drawSkeleton(poses);
+
+      frames++;
+      const now=performance.now();
+      if(now-lastFps>=1000){
+        fpsDisplay.textContent=frames;
+        frames=0;
+        lastFps=now;
+      }
+
+      status.textContent=poses.length
+        ? 'RASTREANDO MOVIMIENTO...'
+        : 'BUSCANDO OBJETIVOS...';
+    }catch(e){
+      status.textContent='ERROR EN EL SEGUIMIENTO';
+      console.error(e);
+    }
+  }
+
+  if(running) animation=requestAnimationFrame(loop);
+}
+
+startBtn.onclick=async()=>{
+  startBtn.disabled=true;
+  status.textContent='INICIANDO MOTOR DE IA...';
+
+  try{
+    if(!navigator.mediaDevices?.getUserMedia){
+      throw new Error('Abre esta página mediante HTTPS.');
+    }
+
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:false,
+      video:{
+        facingMode:'user',
+        width:{ideal:640},
+        height:{ideal:480}
+      }
+    });
+
+    video.srcObject=stream;
+    await video.play();
+
+    status.textContent='CARGANDO MODELO DE DETECCIÓN...';
+
+    await tf.setBackend('webgl');
+    await tf.ready();
+
+    detector=await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      {
+        modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+      }
+    );
+
+    running=true;
+    stopBtn.disabled=false;
+    status.textContent='SISTEMA ACTIVO';
+    loop();
+
+  }catch(e){
+    console.error(e);
+    status.textContent='ERROR: '+e.message;
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    stream=null;
+    video.srcObject=null;
+    startBtn.disabled=false;
+  }
 };
 
-const fileInput=
-document.getElementById(
-"fileInput"
-);
+stopBtn.onclick=()=>{
+  running=false;
+  cancelAnimationFrame(animation);
 
-fileInput.addEventListener(
-"change",
-e=>{
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=null;
+  video.srcObject=null;
 
-const file=e.target.files[0];
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  people.textContent='0';
+  fpsDisplay.textContent='0';
+  status.textContent='SISTEMA DETENIDO';
 
-const reader=
-new FileReader();
-
-reader.onload=(event)=>{
-
-document.getElementById(
-"preview"
-).src=
-event.target.result;
-
+  stopBtn.disabled=true;
+  startBtn.disabled=false;
 };
-
-reader.readAsDataURL(file);
-
-}
-);
-
-async function enhanceImage(){
-
-const API_KEY=
-localStorage.getItem(
-"gemini_api_key"
-);
-
-if(!API_KEY){
-
-alert(
-"Configura tu API Key"
-);
-
-return;
-}
-
-const file=
-fileInput.files[0];
-
-if(!file){
-
-alert(
-"Selecciona una imagen"
-);
-
-return;
-}
-
-document.getElementById(
-"loading"
-).style.display=
-"block";
-
-const base64=
-await fileToBase64(file);
-
-const pureBase64=
-base64.split(",")[1];
-
-const response=
-await fetch(
-`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${API_KEY}`,
-{
-method:"POST",
-headers:{
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-
-contents:[{
-
-parts:[
-
-{
-text:`
-Improve image quality.
-Reduce blur.
-Reduce compression artifacts.
-Improve clarity.
-Restore details where possible.
-Preserve composition.
-Do not modify objects.
-Keep original colors.
-`
-},
-
-{
-inline_data:{
-mime_type:file.type,
-data:pureBase64
-}
-}
-
-]
-
-}]
-
-})
-
-}
-);
-
-const data=
-await response.json();
-
-console.log(data);
-
-document.getElementById(
-"loading"
-).style.display=
-"none";
-
-try{
-
-const parts=
-data.candidates[0]
-.content.parts;
-
-for(const part of parts){
-
-if(part.inlineData){
-
-document.getElementById(
-"result"
-).src=
-
-`data:image/png;base64,${
-part.inlineData.data
-}`;
-
-return;
-
-}
-
-if(part.inline_data){
-
-document.getElementById(
-"result"
-).src=
-
-`data:image/png;base64,${
-part.inline_data.data
-}`;
-
-return;
-
-}
-
-}
-
-alert(
-"No se encontró imagen en la respuesta."
-);
-
-}catch(err){
-
-console.error(err);
-
-alert(
-"Error procesando respuesta."
-);
-
-}
-
-}
-
-function fileToBase64(file){
-
-return new Promise(
-(resolve,reject)=>{
-
-const reader=
-new FileReader();
-
-reader.onload=
-()=>resolve(
-reader.result
-);
-
-reader.onerror=
-error=>reject(
-error
-);
-
-reader.readAsDataURL(
-file
-);
-
-}
-);
-
-}
-
 </script>
-
 </body>
 </html>
